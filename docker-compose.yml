@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  db:
+    build: ./db
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: monitoring
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: user
+      RABBITMQ_DEFAULT_PASS: password
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  backend:
+    build: ./backend
+    restart: always
+    depends_on:
+      - db
+      - rabbitmq
+    environment:
+      DB_HOST: db
+      DB_USER: admin
+      DB_PASSWORD: secret
+      DB_NAME: monitoring
+      RABBITMQ_URL: amqp://user:password@rabbitmq:5672/
+      JWT_SECRET: mysecretkey
+    ports:
+      - "8080:8080"
+
+  pinger:
+    build: ./pinger
+    restart: always
+    depends_on:
+      - backend
+      - rabbitmq
+    environment:
+      BACKEND_URL: http://backend:8080
+      RABBITMQ_URL: amqp://user:password@rabbitmq:5672/
+      NETNS_ENABLED: "true"
+      PING_TIME: 100
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  frontend:
+    build: ./frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "3001:3001"  # Фронтенд будет доступен на порту 3001
+    environment:
+      PORT: 3001
+
+  nginx:
+    build: ./nginx
+    restart: always
+    depends_on:
+      - frontend
+      - backend
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
+
+volumes:
+  db_data:
